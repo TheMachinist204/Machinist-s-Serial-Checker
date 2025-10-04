@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationIcon>Assets\appicon.ico</ApplicationIcon>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Management" Version="8.0.0" />
+  </ItemGroup>
+
+  <!-- No runtime content copy; icon is embedded into the exe -->
+
+  <Target Name="PrepareAppIcon" BeforeTargets="PrepareForBuild">
+    <PropertyGroup>
+      <PngIcon>$(MSBuildProjectDirectory)\Assets\appicon.png</PngIcon>
+      <IcoIcon>$(MSBuildProjectDirectory)\Assets\appicon.ico</IcoIcon>
+      <ConvertScript>$(MSBuildProjectDirectory)\BuildTools\ConvertPngToIco.ps1</ConvertScript>
+    </PropertyGroup>
+    <Exec Condition="!Exists('$(IcoIcon)') AND Exists('$(PngIcon)')" Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(ConvertScript)&quot; &quot;$(PngIcon)&quot; &quot;$(IcoIcon)&quot;" />
+  </Target>
+
+</Project>
