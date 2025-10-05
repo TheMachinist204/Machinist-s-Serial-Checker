@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Net;
 using System.Management;
 using Microsoft.Win32;
 using Microsoft.Win32.SafeHandles;
@@ -1163,13 +1164,154 @@ public class HardwareInfoService
         public uint Type;
         public uint DhcpEnabled;
         public IntPtr CurrentIpAddress;
-        // ... other fields omitted for brevity
     }
 
     #endregion
 
-    #region P/Invoke Declarations
+    #region ARP Table
+    public List<HardwareItem> GetArpTable()
+    {
+        var items = new List<HardwareItem>();
+        try
+        {
+            int size = 0;
+            GetIpNetTable(IntPtr.Zero, ref size, true);
+            if (size == 0)
+            {
+                items.Add(new HardwareItem { Category = "ARP", Name = "Info", Value = "No entries", Notes = "" });
+                return items;
+            }
 
+            var buffer = Marshal.AllocHGlobal(size);
+            try
+            {
+                int result = GetIpNetTable(buffer, ref size, true);
+                if (result != 0)
+                {
+                    items.Add(new HardwareItem { Category = "ARP", Name = "Error", Value = $"GetIpNetTable failed: {result}", Notes = "" });
+                    return items;
+                }
+
+                int numEntries = Marshal.ReadInt32(buffer); // dwNumEntries
+                IntPtr rowPtr = IntPtr.Add(buffer, 4);
+                int rowSize = Marshal.SizeOf<MIB_IPNETROW>();
+
+                // Build adapter index -> name map
+                var indexToName = new Dictionary<uint, string>();
+                try
+                {
+                    uint len = 0;
+                    GetAdaptersInfo(IntPtr.Zero, ref len);
+                    if (len > 0)
+                    {
+                        var buf = Marshal.AllocHGlobal((int)len);
+                        try
+                        {
+                            if (GetAdaptersInfo(buf, ref len) == 0)
+                            {
+                                var cur = buf;
+                                while (cur != IntPtr.Zero)
+                                {
+                                    var adp = Marshal.PtrToStructure<IP_ADAPTER_INFO>(cur);
+                                    indexToName[adp.Index] = adp.Description ?? $"IfIndex {adp.Index}";
+                                    cur = adp.Next;
+                                }
+                            }
+                        }
+                        finally { Marshal.FreeHGlobal(buf); }
+                    }
+                }
+                catch { }
+
+                for (int i = 0; i < numEntries; i++)
+                {
+                    var row = Marshal.PtrToStructure<MIB_IPNETROW>(rowPtr);
+
+                    if (row.dwPhysAddrLen == 0)
+                    {
+                        rowPtr = IntPtr.Add(rowPtr, rowSize);
+                        continue;
+                    }
+
+                    // Skip invalid entries (2 = Invalid)
+                    if (row.dwType == 2)
+                    {
+                        rowPtr = IntPtr.Add(rowPtr, rowSize);
+                        continue;
+                    }
+
+                    // Convert IPv4 from DWORD (little-endian) to bytes in network order
+                    byte[] ipBytes = new byte[]
+                    {
+                        (byte)(row.dwAddr & 0xFF),
+                        (byte)((row.dwAddr >> 8) & 0xFF),
+                        (byte)((row.dwAddr >> 16) & 0xFF),
+                        (byte)((row.dwAddr >> 24) & 0xFF)
+                    };
+                    string ip = new IPAddress(ipBytes).ToString();
+                    int macLen = (int)Math.Min((uint)row.bPhysAddr.Length, row.dwPhysAddrLen);
+                    string mac = BitConverter.ToString(row.bPhysAddr, 0, macLen).Replace("-", ":");
+                    string typeStr = row.dwType switch
+                    {
+                        4 => "Static",
+                        3 => "Dynamic",
+                        2 => "Invalid",
+                        1 => "Other",
+                        _ => $"Type {row.dwType}"
+                    };
+
+                    string adapterName = indexToName.TryGetValue(row.dwIndex, out var name) ? name : $"IfIndex {row.dwIndex}";
+
+                    items.Add(new HardwareItem
+                    {
+                        Category = "ARP",
+                        Name = ip,
+                        Value = mac,
+                        Notes = $"{typeStr}; Adapter: {adapterName}"
+                    });
+
+                    rowPtr = IntPtr.Add(rowPtr, rowSize);
+                }
+
+                if (items.Count == 0)
+                {
+                    items.Add(new HardwareItem
+                    {
+                        Category = "ARP",
+                        Name = "Info",
+                        Value = "No ARP entries found",
+                        Notes = ""
+                    });
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+        }
+        catch (Exception ex)
+        {
+            items.Add(new HardwareItem { Category = "ARP", Name = "Error", Value = ex.Message, Notes = "Failed to retrieve" });
+        }
+        return items;
+    }
+
+    [DllImport("iphlpapi.dll", SetLastError = true)]
+    private static extern int GetIpNetTable(IntPtr pIpNetTable, ref int pdwSize, bool bOrder);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MIB_IPNETROW
+    {
+        public uint dwIndex;
+        public uint dwPhysAddrLen;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 6)]
+        public byte[] bPhysAddr;
+        public uint dwAddr;
+        public uint dwType;
+    }
+    #endregion
+
+    #region P/Invoke Declarations
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern uint GetSystemFirmwareTable(uint firmwareTableProviderSignature, uint firmwareTableID, IntPtr pFirmwareTableBuffer, uint bufferSize);
 

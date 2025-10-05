@@ -174,6 +174,7 @@ public partial class MainForm : Form
         CreateTab("Disks", "Disk");
         CreateTab("GPU", "GPU");
         CreateTab("Network", "NIC");
+        CreateTab("ARP", "ARP");
 
         // Buttons - semi-transparent
         btnRefresh = new Button
@@ -264,7 +265,10 @@ public partial class MainForm : Form
         
         var dgv = new DataGridView
         {
-            Dock = DockStyle.Fill,
+            Dock = DockStyle.None,
+            Location = new Point(10, 10),
+            Size = new Size(tabControl.Width - 40, 280),
+            Anchor = AnchorStyles.None,
             AutoGenerateColumns = true,
             ReadOnly = true,
             AllowUserToAddRows = false,
@@ -281,7 +285,8 @@ public partial class MainForm : Form
             ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single,
             EnableHeadersVisualStyles = false,
             RowHeadersVisible = false,
-            EditMode = DataGridViewEditMode.EditProgrammatically
+            EditMode = DataGridViewEditMode.EditProgrammatically,
+            ScrollBars = ScrollBars.Both
         };
         
         // Style column headers - very dark, non-selectable
@@ -303,8 +308,53 @@ public partial class MainForm : Form
         dgv.AlternatingRowsDefaultCellStyle.SelectionForeColor = Color.White;
         
         tabPage.Controls.Add(dgv);
+        // Center grid within tab and keep positioned on resize
+        tabPage.Resize += (s, e) => CenterGridInTab(tabPage, dgv);
+        // Adjust height to content any time data changes
+        dgv.DataBindingComplete += (s, e) => AdjustGridToContent(dgv);
+        dgv.RowsAdded += (s, e) => AdjustGridToContent(dgv);
+        dgv.RowsRemoved += (s, e) => AdjustGridToContent(dgv);
         tabControl.TabPages.Add(tabPage);
         dataGridViews[category] = dgv;
+        // Initial centering
+        CenterGridInTab(tabPage, dgv);
+    }
+
+    // Resize a grid's height to its content, leaving background visible
+    private void AdjustGridToContent(DataGridView dgv, int minRows = 1, int maxHeight = 450)
+    {
+        try
+        {
+            int header = dgv.ColumnHeadersVisible ? dgv.ColumnHeadersHeight : 0;
+            int rowCount = dgv.Rows.Count;
+            int rowHeight = dgv.RowTemplate?.Height > 0 ? dgv.RowTemplate.Height : 22;
+            if (rowCount > 0)
+            {
+                // Use first row height if available (accounts for font/style)
+                rowHeight = Math.Max(rowHeight, dgv.Rows[0].Height);
+            }
+            int rowsToMeasure = Math.Max(minRows, rowCount);
+            int height = header + rowsToMeasure * rowHeight + 2; // small padding
+            height = Math.Min(maxHeight, height);
+            height = Math.Max(header + (minRows * rowHeight) + 2, height);
+            dgv.Height = height;
+            // Recenter after height change
+            if (dgv.Parent is TabPage tp)
+                CenterGridInTab(tp, dgv);
+        }
+        catch { }
+    }
+
+    private void CenterGridInTab(TabPage page, DataGridView dgv)
+    {
+        if (page == null || dgv == null) return;
+        int margin = 20;
+        int minWidth = 400;
+        int maxWidth = Math.Min(page.ClientSize.Width - margin * 2, 1100);
+        dgv.Width = Math.Max(minWidth, maxWidth);
+        int x = Math.Max(margin, (page.ClientSize.Width - dgv.Width) / 2);
+        int y = Math.Max(margin, (page.ClientSize.Height - dgv.Height) / 2);
+        dgv.Location = new Point(x, y);
     }
 
     private void BtnRefresh_Click(object? sender, EventArgs e)
@@ -327,30 +377,42 @@ public partial class MainForm : Form
             categoryData["BIOS"] = biosData;
             dataGridViews["BIOS"].DataSource = null;
             dataGridViews["BIOS"].DataSource = biosData;
+            AdjustGridToContent(dataGridViews["BIOS"]);
             
             // Load CPU info
             var cpuData = hardwareService.GetProcessorInfo();
             categoryData["CPU"] = cpuData;
             dataGridViews["CPU"].DataSource = null;
             dataGridViews["CPU"].DataSource = cpuData;
+            AdjustGridToContent(dataGridViews["CPU"]);
             
             // Load Disk info
             var diskData = hardwareService.GetDiskInfo();
             categoryData["Disk"] = diskData;
             dataGridViews["Disk"].DataSource = null;
             dataGridViews["Disk"].DataSource = diskData;
+            AdjustGridToContent(dataGridViews["Disk"]);
             
             // Load GPU info
             var gpuData = hardwareService.GetVideoControllerInfo();
             categoryData["GPU"] = gpuData;
             dataGridViews["GPU"].DataSource = null;
             dataGridViews["GPU"].DataSource = gpuData;
+            AdjustGridToContent(dataGridViews["GPU"]);
             
             // Load NIC info
             var nicData = hardwareService.GetNetworkAdapterInfo();
             categoryData["NIC"] = nicData;
             dataGridViews["NIC"].DataSource = null;
             dataGridViews["NIC"].DataSource = nicData;
+            AdjustGridToContent(dataGridViews["NIC"]);
+            
+            // Load ARP table
+            var arpData = hardwareService.GetArpTable();
+            categoryData["ARP"] = arpData;
+            dataGridViews["ARP"].DataSource = null;
+            dataGridViews["ARP"].DataSource = arpData;
+            AdjustGridToContent(dataGridViews["ARP"]);
             
             var totalItems = categoryData.Values.Sum(list => list.Count);
             lblStatus.Text = $"Loaded {totalItems} hardware items across {categoryData.Count} categories.";

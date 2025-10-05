@@ -7,7 +7,8 @@ public class AnimatedBackgroundPanel : Panel
     private List<Particle> particles;
     private System.Windows.Forms.Timer animationTimer;
     private Random random;
-    private const int ParticleCount = 50;
+    private const int ParticleCount = 75;
+    private bool seededOnce = false;
 
     public AnimatedBackgroundPanel()
     {
@@ -17,13 +18,13 @@ public class AnimatedBackgroundPanel : Panel
         random = new Random();
         particles = new List<Particle>();
         
-        // Initialize particles
+        // Initialize particles (use safe bounds even if control hasn't been sized yet)
         for (int i = 0; i < ParticleCount; i++)
         {
             particles.Add(new Particle
             {
-                X = random.Next(0, this.Width),
-                Y = random.Next(0, this.Height),
+                X = random.Next(0, Math.Max(1, this.Width)),
+                Y = random.Next(0, Math.Max(1, this.Height)),
                 Z = random.NextDouble() * 500 + 100,
                 VelocityX = (random.NextDouble() - 0.5) * 2,
                 VelocityY = (random.NextDouble() - 0.5) * 2,
@@ -37,7 +38,30 @@ public class AnimatedBackgroundPanel : Panel
         animationTimer.Tick += AnimationTimer_Tick;
         animationTimer.Start();
         
-        this.Resize += (s, e) => ResetParticles();
+        this.Resize += (s, e) =>
+        {
+            if (!seededOnce && this.Width > 0 && this.Height > 0)
+                SeedParticlesPositions();
+            else
+                ResetParticles();
+        };
+    }
+
+    protected override void OnCreateControl()
+    {
+        base.OnCreateControl();
+        if (!seededOnce && this.Width > 0 && this.Height > 0)
+            SeedParticlesPositions();
+    }
+
+    private void SeedParticlesPositions()
+    {
+        foreach (var p in particles)
+        {
+            p.X = random.Next(0, Math.Max(1, this.Width));
+            p.Y = random.Next(0, Math.Max(1, this.Height));
+        }
+        seededOnce = true;
     }
 
     private void ResetParticles()
